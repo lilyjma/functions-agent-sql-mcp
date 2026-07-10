@@ -1,0 +1,14 @@
+[project]
+name = "functions-agent-sql-mcp"
+version = "1.0.0"
+description = "Azure Functions and Copilot SDK sample: an agent that queries a SQL database through an Entra-protected MCP server using managed identity."
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "azure-functions>=2.2.0",
+    "azure-identity",
+    "github-copilot-sdk",
+]
+
+[tool.uv]
+package = false
