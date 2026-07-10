@@ -118,8 +118,8 @@ param aiStorageAccountResourceId string = ''
 @description('The Cosmos DB Account full ARM Resource ID. This is an optional field, and if not provided, the resource will be created.')
 param aiCosmosDbAccountResourceId string = ''
 
-@description('URL of the Entra-protected SQL MCP server. When set, the Function connects to it using its managed identity.')
-param sqlMcpServerUrl string = ''
+@description('URL of the Entra-protected SQL MCP server (Connector Namespace hosted MCP endpoint, ending in /mcp). The Function connects to it using its managed identity. Required — azd prompts for this if SQL_MCP_SERVER_URL is not already set in the azd environment.')
+param sqlMcpServerUrl string
 
 var abbrs = loadJsonContent('./abbreviations.json')
 var resourceToken = toLower(uniqueString(subscription().id, environmentName, location))

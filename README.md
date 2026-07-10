@@ -24,15 +24,41 @@ The Azure Connector Namespace is a new offering that allows you to host fully ma
    uv sync
    ```
 
-3. Copy `.env.example` to `.env` and set at least `SQL_MCP_SERVER_URL` (and your model settings). See [`.env.example`](.env.example).
+3. Create your local settings file:
 
-4. Run the function locally:
+   ```bash
+   cp local.settings.json.sample local.settings.json
+   ```
+
+   Then edit `local.settings.json` and set the values under `"Values"`:
+
+   - **`SQL_MCP_SERVER_URL`** (required) — the hosted MCP endpoint of your SQL MCP server, ending in `/mcp`. Copy it from the server's **Overview** page in the [Connector Namespace portal](https://connectors.azure.com/). This is what the agent connects to.
+   - **Model settings** (optional locally) — leave `AZURE_OPENAI_ENDPOINT` blank to use your **GitHub Copilot** subscription's models. To use your own Azure OpenAI / Foundry model, set `AZURE_OPENAI_ENDPOINT` and `AZURE_OPENAI_DEPLOYMENT_NAME` (and `AZURE_OPENAI_API_KEY` for key auth, or leave it blank to use managed identity). See [Using Microsoft Foundry (BYOK)](#using-microsoft-foundry-byok).
+
+   `local.settings.json` is git-ignored and **never deployed** — `func start` loads its `"Values"` into environment variables. In Azure, the same variables come from the Function app's settings (provisioned by `azd up`).
+
+4. Authorize your identity on the SQL MCP server (for local dev). Locally, `DefaultAzureCredential` uses your `az login` identity, so the MCP server must have an access policy for **your** user object ID. Get your object ID and tenant ID:
+
+   ```bash
+   az login
+   az ad signed-in-user show --query id -o tsv   # your object ID
+   az account show --query tenantId -o tsv        # your tenant ID
+   ```
+
+   Then add an access policy on the server ([docs](https://learn.microsoft.com/azure/logic-apps/connector-namespace/hosted-mcp-dev-guide#access-policy)):
+
+   1. In the [Connector Namespace portal](https://connectors.azure.com/), open your namespace.
+   2. Select the **MCP Connectors** tab and open your SQL MCP server.
+   3. Select the **Access Policies** tab, then **+ Add Access Policy**.
+   4. Set **Principal Type** to **User**, enter your **Principal Object ID** and **Tenant ID**, and save.
+
+5. Run the function locally:
 
    ```bash
    uv run func start
    ```
 
-5. Ask the agent something (in a new terminal):
+6. Ask the agent something (in a new terminal):
 
    ```bash
    # Interactive chat client
@@ -80,11 +106,13 @@ azd auth login
 azd up
 ```
 
-This provisions all resources and configures the app. Set `SQL_MCP_SERVER_URL` in your azd environment so it flows into the Function's app settings:
+This provisions all resources and configures the app. `azd up` **prompts** for the SQL MCP server URL (and the two regions below). To skip the prompt, preset it in your azd environment first:
 
 ```bash
-azd env set SQL_MCP_SERVER_URL "https://<gateway-host>/.../mcpServerConfigs/sql-mcp/mcp"
+azd env set SQL_MCP_SERVER_URL "https://<gateway-host>/api/connectorGateways/<id>/mcpServerConfigs/sql-mcp/mcp"
 ```
+
+The URL is stored as the Function app's `SQL_MCP_SERVER_URL` app setting (wired in [`infra/main.bicep`](infra/main.bicep)) — that's how the deployed agent gets it. `local.settings.json` is not involved in Azure.
 
 ### Choosing regions
 
@@ -92,6 +120,24 @@ azd env set SQL_MCP_SERVER_URL "https://<gateway-host>/.../mcpServerConfigs/sql-
 
 - **Location** (`AZURE_LOCATION`) → the Function, storage, and plan. Co-locate this with your SQL MCP server for low-latency MCP calls. You can pick any Azure region.
 - **AI location** (`AZURE_AI_LOCATION`) → the AI Services account and model deployment. This picker is **pre-filtered to the regions that offer `gpt-5-mini` on the GlobalStandard SKU** (see the `@allowed` list on the `aiLocation` param in [`infra/main.bicep`](infra/main.bicep)), so you can't accidentally choose a region the model isn't available in. Pick one close to your Function region.
+
+### Authorize the Function's managed identity (post-deployment)
+
+After `azd up`, the deployed Function calls the SQL MCP server with its **user-assigned managed identity**, so the server needs an access policy for that identity's object ID (the same way you authorized your own identity for local dev). Get the object ID from the azd outputs:
+
+```bash
+azd env get-value AZURE_FUNCTION_MI_PRINCIPAL_ID   # object ID to authorize
+az account show --query tenantId -o tsv            # tenant ID
+```
+
+Then add the access policy on the server:
+
+1. In the [Connector Namespace portal](https://connectors.azure.com/), open your namespace.
+2. Select the **MCP Connectors** tab and open your SQL MCP server.
+3. Select the **Access Policies** tab, then **+ Add Access Policy**.
+4. Set **Principal Type** to **User**, enter the managed identity's **Principal Object ID** (`AZURE_FUNCTION_MI_PRINCIPAL_ID`) and your **Tenant ID**, and save.
+
+> The server matches callers by object ID, so register the managed identity with **Principal Type = User** even though it's a managed identity.
 
 ## Connecting to the SQL MCP server
 
@@ -109,12 +155,7 @@ The Copilot SDK calls the `on_mcp_auth_request` handler when the MCP server retu
 - **Locally**, `DefaultAzureCredential` uses your `az login` identity.
 - **In Azure**, it uses the Function's user-assigned managed identity.
 
-The Connector Namespace must accept the caller's object ID. That's why you need to add an access policy for the object ID of whatever identity `DefaultAzureCredential` resolves to (your dev identity locally, the Function's managed identity in Azure). After deploying, the managed identity's IDs are available as azd outputs:
-
-   ```bash
-   azd env get-value AZURE_FUNCTION_MI_PRINCIPAL_ID   # object ID to authorize
-   azd env get-value AZURE_FUNCTION_MI_CLIENT_ID
-   ```
+The Connector Namespace only accepts callers that have an **access policy** for their object ID — the identity `DefaultAzureCredential` resolves to (your dev identity locally, the Function's managed identity in Azure). See [step 4](#quickstart) for authorizing your local identity and [Authorize the Function's managed identity](#authorize-the-functions-managed-identity-post-deployment) for the deployed identity.
 
 ## Source code
 
