@@ -33,7 +33,7 @@ The Azure Connector Namespace is a new offering that allows you to host fully ma
    Then edit `local.settings.json` and set the values under `"Values"`:
 
    - **`SQL_MCP_SERVER_URL`** (required) — the hosted MCP endpoint of your SQL MCP server, ending in `/mcp`. Copy it from the server's **Overview** page in the [Connector Namespace portal](https://connectors.azure.com/). This is what the agent connects to.
-   - **Model settings** (optional locally) — leave `AZURE_OPENAI_ENDPOINT` blank to use your **GitHub Copilot** subscription's models. To use your own Azure OpenAI / Foundry model, set `AZURE_OPENAI_ENDPOINT` and `AZURE_OPENAI_DEPLOYMENT_NAME` (and `AZURE_OPENAI_API_KEY` for key auth, or leave it blank to use managed identity). See [Using Microsoft Foundry (BYOK)](#using-microsoft-foundry-byok).
+   - **Model settings** (optional) — by default (no `AZURE_OPENAI_*` settings) the agent uses your **GitHub Copilot** subscription's models. To use your own Azure OpenAI / Foundry model instead, add `AZURE_OPENAI_ENDPOINT` and `AZURE_OPENAI_DEPLOYMENT_NAME` under `"Values"` (and `AZURE_OPENAI_API_KEY` for key auth, or omit it to use managed identity). See [Using Microsoft Foundry (BYOK)](#using-microsoft-foundry-byok).
 
    `local.settings.json` is git-ignored and **never deployed** — `func start` loads its `"Values"` into environment variables. In Azure, the same variables come from the Function app's settings (provisioned by `azd up`).
 
