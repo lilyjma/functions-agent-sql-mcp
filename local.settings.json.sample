@@ -1,9 +1,0 @@
-{
-  "IsEncrypted": false,
-  "Values": {
-    "AzureWebJobsStorage": "UseDevelopmentStorage=true",
-    "FUNCTIONS_WORKER_RUNTIME": "python",
-
-    "SQL_MCP_SERVER_URL": "https://<gateway-host>/api/connectorGateways/<id>/mcpServerConfigs/sql-mcp/mcp"
-  }
-}
