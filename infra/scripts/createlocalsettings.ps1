@@ -4,16 +4,16 @@ if (-not (Test-Path ".\local.settings.json")) {
 
     $output = azd env get-values
 
-    # Parse the output to get the endpoint values
+    # Parse the output to get the values provisioned by azd
     foreach ($line in $output) {
-        if ($line -match "PROJECT_ENDPOINT"){
-            $AIProjectEndpoint = ($line -split "=")[1] -replace '"',''
+        if ($line -match "^SQL_MCP_SERVER_URL="){
+            $SqlMcpServerUrl = ($line -split "=", 2)[1] -replace '"',''
         }
-        if ($line -match "STORAGE_CONNECTION__queueServiceUri"){
-            $StorageConnectionQueue = ($line -split "=")[1] -replace '"',''
+        if ($line -match "^AZURE_OPENAI_ENDPOINT="){
+            $AzureOpenAIEndpoint = ($line -split "=", 2)[1] -replace '"',''
         }
-        if ($line -match "MODEL_DEPLOYMENT_NAME"){
-            $ModelDeploymentName = ($line -split "=")[1] -replace '"',''
+        if ($line -match "^AZURE_OPENAI_DEPLOYMENT_NAME="){
+            $AzureOpenAIDeploymentName = ($line -split "=", 2)[1] -replace '"',''
         }
     }
 
@@ -22,9 +22,9 @@ if (-not (Test-Path ".\local.settings.json")) {
         "Values" = @{
             "AzureWebJobsStorage" = "UseDevelopmentStorage=true";
             "FUNCTIONS_WORKER_RUNTIME" = "python";
-            "AZURE_AI_PROJECT_ENDPOINT" = "$AIProjectEndpoint";
-            "AZURE_AI_MODEL_DEPLOYMENT_NAME" = "$ModelDeploymentName";
-            "STORAGE_CONNECTION__queueServiceUri" = "$StorageConnectionQueue";
+            "SQL_MCP_SERVER_URL" = "$SqlMcpServerUrl";
+            "AZURE_OPENAI_ENDPOINT" = "$AzureOpenAIEndpoint";
+            "AZURE_OPENAI_DEPLOYMENT_NAME" = "$AzureOpenAIDeploymentName";
         }
     } | ConvertTo-Json | Out-File -FilePath ".\local.settings.json" -Encoding ascii
 }

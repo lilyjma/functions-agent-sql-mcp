@@ -7,24 +7,20 @@ if [ ! -f "./local.settings.json" ]; then
     output=$(azd env get-values)
 
     # Initialize variables
-    AIProjectEndpoint=""
-    StorageConnectionQueue=""
-    ModelDeploymentName=""
+    SqlMcpServerUrl=""
     AzureOpenAIEndpoint=""
+    AzureOpenAIDeploymentName=""
 
-    # Parse the output to get the endpoint URLs
+    # Parse the output to get the values provisioned by azd
     while IFS= read -r line; do
-        if [[ $line == *"PROJECT_ENDPOINT"* ]]; then
-            AIProjectEndpoint=$(echo "$line" | cut -d '=' -f 2 | tr -d '"')
+        if [[ $line == "SQL_MCP_SERVER_URL="* ]]; then
+            SqlMcpServerUrl=$(echo "$line" | cut -d '=' -f 2- | tr -d '"')
         fi
-        if [[ $line == *"STORAGE_CONNECTION__queueServiceUri"* ]]; then
-            StorageConnectionQueue=$(echo "$line" | cut -d '=' -f 2 | tr -d '"')
+        if [[ $line == "AZURE_OPENAI_ENDPOINT="* ]]; then
+            AzureOpenAIEndpoint=$(echo "$line" | cut -d '=' -f 2- | tr -d '"')
         fi
-        if [[ $line == *"MODEL_DEPLOYMENT_NAME"* ]]; then
-            ModelDeploymentName=$(echo "$line" | cut -d '=' -f 2 | tr -d '"')
-        fi
-        if [[ $line == *"AZURE_OPENAI_ENDPOINT"* ]]; then
-            AzureOpenAIEndpoint=$(echo "$line" | cut -d '=' -f 2 | tr -d '"')
+        if [[ $line == "AZURE_OPENAI_DEPLOYMENT_NAME="* ]]; then
+            AzureOpenAIDeploymentName=$(echo "$line" | cut -d '=' -f 2- | tr -d '"')
         fi
     done <<< "$output"
 
@@ -34,10 +30,9 @@ if [ ! -f "./local.settings.json" ]; then
     "Values": {
         "AzureWebJobsStorage": "UseDevelopmentStorage=true",
         "FUNCTIONS_WORKER_RUNTIME": "python",
-        "AZURE_AI_PROJECT_ENDPOINT": "$AIProjectEndpoint",
-        "AZURE_AI_MODEL_DEPLOYMENT_NAME": "$ModelDeploymentName",
+        "SQL_MCP_SERVER_URL": "$SqlMcpServerUrl",
         "AZURE_OPENAI_ENDPOINT": "$AzureOpenAIEndpoint",
-        "STORAGE_CONNECTION__queueServiceUri": "$StorageConnectionQueue"
+        "AZURE_OPENAI_DEPLOYMENT_NAME": "$AzureOpenAIDeploymentName"
     }
 }
 EOF
