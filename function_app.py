@@ -167,7 +167,7 @@ async def _chat_agent(prompt: str, session_id: str | None) -> tuple[str, str]:
     config = _session_config()
     config_dir = _resolve_config_dir()
     if config_dir:
-        config["config_dir"] = config_dir
+        config["config_directory"] = config_dir
 
     if session_id and _session_exists(config_dir, session_id):
         session = await client.resume_session(session_id, **config)
