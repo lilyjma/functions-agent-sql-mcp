@@ -32,7 +32,10 @@ while True:
     try:
         req = urllib.request.Request(url, data=message.encode(), method="POST", headers=headers)
         with urllib.request.urlopen(req) as resp:
-            session_id = resp.headers.get("x-ms-session-id", session_id)
+            returned = resp.headers.get("x-ms-session-id", session_id)
+            if returned and returned != session_id:
+                print(f"[session: {returned}]")
+            session_id = returned
             payload = json.loads(resp.read().decode())
             print(f"\nAgent: {payload.get('response', '')}\n")
     except Exception as e:
