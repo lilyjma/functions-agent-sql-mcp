@@ -53,12 +53,21 @@ The Azure Connector Namespace is a new offering that allows you to host fully ma
 1. Ask the agent something (in a new terminal):
 
    ```bash
-   # Interactive chat client
+   # Interactive chat client (multi-turn — keeps conversation context)
    uv run chat.py
 
-   # Or use curl directly
+   # Single-turn: POST a prompt to /api/ask and get one reply
    curl -X POST http://localhost:7071/api/ask \
      -d "List tables in the database."
+
+   # Multi-turn: /api/chat returns an x-ms-session-id header; send it back
+   # on the next request to continue the same conversation.
+   curl -i -X POST http://localhost:7071/api/chat \
+     -d "List the blog posts in the database."
+   # ...then reuse the returned id:
+   curl -i -X POST http://localhost:7071/api/chat \
+     -H "x-ms-session-id: <id-from-previous-response>" \
+     -d "Which of those has the most comments?"
    ```
 
    To chat with a deployed instance, grab the URL and function key from your `azd` environment (this key is to access the Function app):
@@ -88,7 +97,21 @@ POST /api/ask  "List the blog posts in the database"
   SQL database
 ```
 
-The agent running on Functions has the SQL MCP server attached, and its system instructions tell it to use the `sql-mcp` tools whenever the user asks about database data. The `/api/ask` endpoint forwards the caller's prompt to that agent; the model decides which tools to call.
+The agent running on Functions has the SQL MCP server attached, and its system instructions tell it to use the `sql-mcp` tools whenever the user asks about database data. The model decides which tools to call — a single question usually results in several tool calls (e.g. `describe_entities` then `read_records`).
+
+Two HTTP endpoints are exposed:
+
+- **`POST /api/ask`** — single-turn. Forwards the prompt to the agent and returns one reply. No memory between requests.
+- **`POST /api/chat`** — multi-turn. Same agent, but the conversation is persisted so follow-up questions keep their context. The response returns an `x-ms-session-id` header; send it back on the next request to resume the same session (the agent remembers earlier turns). Omit the header to start a fresh conversation. This is the realistic way to work with the SQL MCP server, since answering a question often takes several turns of tool calls and follow-ups. `chat.py` uses this endpoint and round-trips the session id for you.
+
+### Session persistence
+
+Multi-turn works because the Copilot SDK persists each conversation's history to `{config_dir}/session-state/{session_id}/` and resumes it on the next turn.
+
+- **Locally**, sessions are stored under `~/.copilot/session-state/`.
+- **In Azure**, the function app mounts an **Azure Files SMB share** (`code-assistant-session`) at `/code-assistant-session` (set via the `COPILOT_CONFIG_DIR` app setting), so conversation state is durable and shared across all instances — it survives cold starts, scale-out, and instance recycling.
+
+**How Azure Files is accessed:** the SMB file-share mount requires the storage account **key**, so the storage account sets `allowSharedKeyAccess: true` (with an `Az.Sec.DisableLocalAuth.Storage::Skip` policy annotation documenting why). This is scoped to the session-state file share only. Everything else stays keyless: the agent authenticates to the **SQL MCP server** with the Function's **managed identity**, and the Function host authenticates to blob/queue storage with managed identity (`AzureWebJobsStorage__credential: managedidentity`). See `infra/main.bicep` (storage account + share) and `infra/app/api.bicep` (the `azurestorageaccounts` mount).
 
 ## Deploy to Azure
 
@@ -138,9 +161,10 @@ The Connector Namespace only accepts callers that have an **access policy** for 
 The agent logic is in [`function_app.py`](function_app.py). It:
 
 - Builds a session config with the Azure OpenAI model provider and (when `SQL_MCP_SERVER_URL` is set) the `sql-mcp` MCP server plus the managed-identity auth handler.
-- Exposes an HTTP endpoint at `/api/ask` that forwards the request body to the agent and returns the reply.
+- Exposes `POST /api/ask` (single-turn) that forwards the request body to the agent and returns the reply.
+- Exposes `POST /api/chat` (multi-turn) that resumes or creates a persisted session keyed by the `x-ms-session-id` header, so follow-up questions keep their context.
 
-[`chat.py`](chat.py) is a lightweight console client that POSTs messages to `/api/ask` in a loop. It defaults to `http://localhost:7071` but can be pointed at a deployed instance via the `AGENT_URL` environment variable.
+[`chat.py`](chat.py) is a lightweight console client that POSTs messages to `/api/chat` in a loop, round-tripping the `x-ms-session-id` header so the conversation stays multi-turn. It defaults to `http://localhost:7071` but can be pointed at a deployed instance via the `AGENT_URL` environment variable.
 
 ## Using Microsoft Foundry (BYOK)
 
