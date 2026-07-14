@@ -1,12 +1,63 @@
 import os
 import json
+import asyncio
 import logging
+import platform
+import shutil
 import azure.functions as func
-from datetime import datetime, timezone
-from copilot import CopilotClient, PermissionHandler
+from copilot import CopilotClient, PermissionHandler, SubprocessConfig
 
 app = func.FunctionApp()
-client = CopilotClient()
+
+# A single CopilotClient (and the Copilot CLI subprocess behind it) is shared across
+# all requests. It is created lazily on first use and then reused, which is the
+# recommended pattern for driving the SDK from inside a Function host.
+_client: CopilotClient | None = None
+_client_lock = asyncio.Lock()
+
+
+def _resolve_cli_path() -> str:
+    """Locate the Copilot CLI binary this app should drive.
+
+    Priority: an explicit ``COPILOT_CLI_PATH`` override; else the platform-specific
+    binary bundled under ``node_modules/@github`` (installed from ``package.json`` at
+    build time — this is what ships to Azure); else a ``copilot`` found on PATH; else
+    the bare command name. Pinning the CLI via package.json keeps the SDK and CLI a
+    matched, tested pair and stops the SDK from auto-downloading a newer CLI whose
+    SQLite session store does not work on the Azure Files SMB share used for durable
+    multi-turn state (see README: Session persistence).
+    """
+    env_path = os.environ.get("COPILOT_CLI_PATH")
+    if env_path:
+        return env_path
+    base = os.path.dirname(os.path.abspath(__file__))
+    platform_pkg = {
+        ("darwin", "arm64"): "copilot-darwin-arm64",
+        ("darwin", "x86_64"): "copilot-darwin-x64",
+        ("linux", "x86_64"): "copilot-linux-x64",
+        ("linux", "aarch64"): "copilot-linux-arm64",
+    }.get((platform.system().lower(), platform.machine().lower()))
+    if platform_pkg:
+        bundled = os.path.join(base, "node_modules", "@github", platform_pkg, "copilot")
+        if os.path.exists(bundled):
+            return bundled
+    return shutil.which("copilot") or "copilot"
+
+
+async def _get_client() -> CopilotClient:
+    """Return the shared CopilotClient, starting it (and the CLI) on first use."""
+    global _client
+    if _client is None:
+        async with _client_lock:
+            if _client is None:
+                sub = {"cli_path": _resolve_cli_path()}
+                github_token = os.environ.get("GITHUB_TOKEN")
+                if github_token:
+                    sub["github_token"] = github_token
+                new_client = CopilotClient(SubprocessConfig(**sub), auto_start=False)
+                await new_client.start()
+                _client = new_client
+    return _client
 
 # OAuth scope (token audience) for the Entra-protected SQL MCP server, which is
 # fronted by a Logic Apps connector gateway (API hub).
@@ -28,23 +79,6 @@ def _get_managed_credential():
 
         _managed_credential = DefaultAzureCredential()
     return _managed_credential
-
-
-def _on_mcp_auth_request(request, context):
-    """Satisfy the SQL MCP server's OAuth challenge with a managed-identity token.
-
-    The Copilot SDK calls this when the MCP server returns a 401 (and for later
-    refresh/reauth events). We mint a bearer token for the server's scope using the
-    Function's managed identity and hand it back to the SDK.
-    """
-    token = _get_managed_credential().get_token(SQL_MCP_SCOPE)
-    expires_in = max(1, int(token.expires_on - datetime.now(timezone.utc).timestamp()))
-    return {
-        "kind": "token",
-        "accessToken": token.token,
-        "tokenType": "Bearer",
-        "expiresIn": expires_in,
-    }
 
 
 instructions = """
@@ -80,18 +114,21 @@ def _session_config():
             provider["bearer_token"] = token.token
         config["provider"] = provider
 
-    # Attach the Entra-protected SQL MCP server. The auth handler supplies the
-    # managed-identity token the gateway requires.
+    # Attach the Entra-protected SQL MCP server. The server sits behind a gateway that
+    # requires a bearer token; we mint one with the Function's managed identity and pass
+    # it as a static Authorization header on the MCP server config (the SDK forwards
+    # these headers on every request to the server).
     sql_mcp_url = os.environ.get("SQL_MCP_SERVER_URL")
     if sql_mcp_url:
+        token = _get_managed_credential().get_token(SQL_MCP_SCOPE)
         config["mcp_servers"] = {
             "sql-mcp": {
                 "type": "http",
                 "url": sql_mcp_url,
                 "tools": ["*"],
+                "headers": {"Authorization": f"Bearer {token.token}"},
             }
         }
-        config["on_mcp_auth_request"] = _on_mcp_auth_request
 
     return config
 
@@ -123,6 +160,7 @@ async def _wait_for_mcp(session, server_name: str, timeout: float = 90.0) -> Non
 async def _ask_agent(prompt: str) -> str:
     """Run a single agent turn. The agent may call the SQL MCP tools to answer."""
     config = _session_config()
+    client = await _get_client()
     session = await client.create_session(**config)
     try:
         if "sql-mcp" in config.get("mcp_servers", {}):
@@ -167,8 +205,9 @@ async def _chat_agent(prompt: str, session_id: str | None) -> tuple[str, str]:
     config = _session_config()
     config_dir = _resolve_config_dir()
     if config_dir:
-        config["config_directory"] = config_dir
+        config["config_dir"] = config_dir
 
+    client = await _get_client()
     if session_id and _session_exists(config_dir, session_id):
         session = await client.resume_session(session_id, **config)
     else:

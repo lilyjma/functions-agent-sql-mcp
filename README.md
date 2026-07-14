@@ -44,6 +44,14 @@ The Azure Connector Namespace is a new offering that allows you to host fully ma
    uv sync
    ```
 
+1. Install the pinned Copilot CLI that the SDK drives. This sample pins the CLI via
+   [`package.json`](package.json) so the SDK and CLI stay a matched, tested pair (see
+   [Session persistence](#session-persistence)); the SDK does not auto-download it:
+
+   ```bash
+   npm install
+   ```
+
 1. Run the function locally:
 
    ```bash
@@ -89,7 +97,7 @@ POST /api/ask  "List the blog posts in the database"
         │
         ▼
   Azure Function ── Copilot SDK agent
-        │   session config attaches the sql-mcp server + a managed-identity auth handler
+        │   session config attaches the sql-mcp server + a managed-identity bearer header
         ▼
   sql-mcp server (Entra-protected)  ← Function's managed identity token
         │   the model calls tools like describe_entities, read_records
@@ -112,6 +120,8 @@ Multi-turn works because the Copilot SDK persists each conversation's history to
 - **In Azure**, the function app mounts an **Azure Files SMB share** (`code-assistant-session`) at `/code-assistant-session` (set via the `COPILOT_CONFIG_DIR` app setting), so conversation state is durable and shared across all instances — it survives cold starts, scale-out, and instance recycling.
 
 **How Azure Files is accessed:** the SMB file-share mount requires the storage account **key**, so the storage account sets `allowSharedKeyAccess: true` (with an `Az.Sec.DisableLocalAuth.Storage::Skip` policy annotation documenting why). This is scoped to the session-state file share only. Everything else stays keyless: the agent authenticates to the **SQL MCP server** with the Function's **managed identity**, and the Function host authenticates to blob/queue storage with managed identity (`AzureWebJobsStorage__credential: managedidentity`). See `infra/main.bicep` (storage account + share) and `infra/app/api.bicep` (the `azurestorageaccounts` mount).
+
+**Pinned SDK + CLI:** the SDK writes session state through the Copilot CLI's own store, and that store must work on the mounted SMB share. This sample pins a matched, tested pair — `github-copilot-sdk==0.2.0` (in `requirements.txt`/`pyproject.toml`) and CLI `@github/copilot@1.0.13` (in [`package.json`](package.json)) — so the SDK doesn't auto-download a newer CLI whose session store fails on the SMB share. On deploy, the remote build runs `npm install` and installs the Linux CLI binary; locally you run `npm install` yourself (the darwin binary). `function_app.py` resolves the bundled binary under `node_modules/@github/copilot-<platform>/copilot` (overridable with `COPILOT_CLI_PATH`) and passes it to the SDK via `SubprocessConfig(cli_path=...)`. The CLI binary is excluded from deployment via `.funcignore` and rebuilt server-side.
 
 ## Deploy to Azure
 
@@ -142,13 +152,18 @@ Then add the access policy on the server like you did previously.
 
 The Function app authenticates to an Entra-protected MCP server without any secrets.
 
-The Copilot SDK calls the `on_mcp_auth_request` handler when the MCP server returns a `401` OAuth challenge. The handler mints a bearer token with `DefaultAzureCredential` for the server's scope (`https://apihub.azure.com/.default`) and hands it back:
+When it attaches the `sql-mcp` server to the session, it mints a bearer token with `DefaultAzureCredential` for the server's scope (`https://apihub.azure.com/.default`) and passes it as a static `Authorization` header on the MCP server config. The SDK forwards that header on every request to the server:
 
    ```python
-   def _on_mcp_auth_request(request, context):
-       token = _get_managed_credential().get_token(SQL_MCP_SCOPE)
-       return {"kind": "token", "accessToken": token.token,
-               "tokenType": "Bearer", "expiresIn": ...}
+   token = _get_managed_credential().get_token(SQL_MCP_SCOPE)
+   config["mcp_servers"] = {
+       "sql-mcp": {
+           "type": "http",
+           "url": sql_mcp_url,
+           "tools": ["*"],
+           "headers": {"Authorization": f"Bearer {token.token}"},
+       }
+   }
    ```
 
 - **Locally**, `DefaultAzureCredential` uses your `az login` identity.
@@ -160,7 +175,7 @@ The Connector Namespace only accepts callers that have an **access policy** for 
 
 The agent logic is in [`function_app.py`](function_app.py). It:
 
-- Builds a session config with the Azure OpenAI model provider and (when `SQL_MCP_SERVER_URL` is set) the `sql-mcp` MCP server plus the managed-identity auth handler.
+- Builds a session config with the Azure OpenAI model provider and (when `SQL_MCP_SERVER_URL` is set) the `sql-mcp` MCP server plus a managed-identity bearer `Authorization` header.
 - Exposes `POST /api/ask` (single-turn) that forwards the request body to the agent and returns the reply.
 - Exposes `POST /api/chat` (multi-turn) that resumes or creates a persisted session keyed by the `x-ms-session-id` header, so follow-up questions keep their context.
 

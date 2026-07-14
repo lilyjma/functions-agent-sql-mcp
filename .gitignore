@@ -154,3 +154,6 @@ __azurite_db*__.json
 
 # Bicep build output
 infra/main.json
+
+# Node (bundled Copilot CLI is installed at build time, not committed)
+node_modules/
