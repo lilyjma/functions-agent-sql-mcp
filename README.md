@@ -17,8 +17,8 @@ The Azure Connector Namespace is a new offering that allows you to host fully ma
 ## Quickstart
 
 1. Clone the repository.
-1. Edit `local.settings.json` and set `SQL_MCP_SERVER_URL`. Copy it from the server's **Overview** page in the [Connector Namespace portal](https://connectors.azure.com/). This is what the agent connects to.
-1. Authorize your identity on the SQL MCP server (for local dev). Locally, `DefaultAzureCredential` uses your `az login` identity, so the MCP server must have an access policy for **your** user object ID. Get your object ID and tenant ID:
+2. Edit `local.settings.json` and set `SQL_MCP_SERVER_URL`. Copy it from the server's **Overview** page in the [Connector Namespace portal](https://connectors.azure.com/). This is what the agent connects to.
+3. Authorize your identity on the SQL MCP server (for local dev). Locally, `DefaultAzureCredential` uses your `az login` identity, so the MCP server must have an access policy for **your** user object ID. Get your object ID and tenant ID:
 
    ```bash
    az login
@@ -32,45 +32,38 @@ The Azure Connector Namespace is a new offering that allows you to host fully ma
    2. Select the **MCP Connectors** tab and open your SQL MCP server.
    3. Select the **Access Policies** tab, then **+ Add Access Policy**.
    4. Set **Principal Type** to **User**, enter your **Principal Object ID** and **Tenant ID**, and save.
-1. Start the local Azure Storage emulator required by the Function app:
+4. Start the local Azure Storage emulator required by the Function app:
 
     ```bash
     azurite --skipApiVersionCheck --silent --location ./.azurite
     ```
 
-1. In a new terminal, install dependencies:
+5. In a new terminal, install dependencies:
 
    ```bash
    uv sync
    ```
 
-1. Run the function locally:
+6. Run the function locally:
 
    ```bash
    uv run func start
    ```
 
-1. Ask the agent something (in a new terminal):
+7. Ask the agent something (in a new terminal):
 
    ```bash
    # Interactive chat client
-   uv run chat.py
 
-   # Or use curl directly
-   curl -X POST http://localhost:7071/api/ask \
-     -d "List tables in the database."
+   uv run chat.py
    ```
 
-   To chat with a deployed instance, grab the URL and function key from your `azd` environment (this key is to access the Function app):
+   Ask a question about the database: "List tables are in the database."
 
    ```bash
-   export AGENT_URL=$(azd env get-value SERVICE_API_URI)
-   export FUNCTION_KEY=$(az functionapp keys list \
-     -n $(azd env get-value AZURE_FUNCTION_APP_NAME) \
-     -g $(azd env get-value RESOURCE_GROUP) \
-     --query "functionKeys.default" -o tsv)
+    # Or use curl directly
 
-   uv run chat.py
+   curl -X POST http://localhost:7071/api/ask -d "List tables in the database."
    ```
 
 ## How it works
@@ -114,6 +107,26 @@ az account show --query tenantId -o tsv            # tenant ID
 Then add the access policy on the server like you did previously.
 
 > The server matches callers by object ID, so register the managed identity with **Principal Type = User** even though it's a managed identity.
+
+### Test
+
+To chat with a deployed instance, grab the URL and function key from your `azd` environment (this key is to access the Function app):
+
+   ```bash
+   export AGENT_URL=$(azd env get-value SERVICE_API_URI)
+   export FUNCTION_KEY=$(az functionapp keys list \
+      -n $(azd env get-value AZURE_FUNCTION_APP_NAME) \
+      -g $(azd env get-value RESOURCE_GROUP) \
+      --query "functionKeys.default" -o tsv)
+   ```
+
+Use curl:
+
+   ```bash
+   export url=$AGENT_URL/api/ask?code=$FUNCTION_KEY
+
+   curl -X POST $url -d "List tables in the database."
+   ```
 
 ## How Function app connects to the SQL MCP server
 
