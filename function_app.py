@@ -1,4 +1,5 @@
 import os
+import json
 import logging
 import azure.functions as func
 from datetime import datetime, timezone
@@ -132,6 +133,59 @@ async def _ask_agent(prompt: str) -> str:
         await session.disconnect()
 
 
+def _resolve_config_dir() -> str | None:
+    """Directory where the SDK persists session state (conversation history).
+
+    Multi-turn resume reads/writes ``{dir}/session-state/{session_id}/``. Priority:
+    an explicit ``COPILOT_CONFIG_DIR`` override; else the Azure Files mount at
+    ``/code-assistant-session`` when running in the Functions container (so state is
+    durable and shared across instances); else ``None`` to use the SDK default
+    (``~/.copilot``) for local development.
+    """
+    explicit = os.environ.get("COPILOT_CONFIG_DIR")
+    if explicit:
+        return explicit
+    if os.environ.get("CONTAINER_NAME"):
+        return "/code-assistant-session"
+    return None
+
+
+def _session_exists(config_dir: str | None, session_id: str) -> bool:
+    """Return True if a persisted session directory exists on disk."""
+    base = config_dir or os.path.expanduser("~/.copilot")
+    return os.path.isdir(os.path.join(base, "session-state", session_id))
+
+
+async def _chat_agent(prompt: str, session_id: str | None) -> tuple[str, str]:
+    """Run one conversational turn, resuming prior context when a session id is given.
+
+    Returns ``(reply_text, session_id)`` so the caller can round-trip the id and keep
+    the conversation going across otherwise-stateless HTTP invocations. When the id
+    refers to a persisted session it is resumed (the agent remembers earlier turns);
+    otherwise a new session is created.
+    """
+    config = _session_config()
+    config_dir = _resolve_config_dir()
+    if config_dir:
+        config["config_directory"] = config_dir
+
+    if session_id and _session_exists(config_dir, session_id):
+        session = await client.resume_session(session_id, **config)
+    else:
+        if session_id:
+            config["session_id"] = session_id
+        session = await client.create_session(**config)
+
+    try:
+        if "sql-mcp" in config.get("mcp_servers", {}):
+            await _wait_for_mcp(session, "sql-mcp")
+        reply = await session.send_and_wait(prompt)
+        text = (reply.data.content if reply and reply.data else None) or "No response"
+        return text, session.session_id
+    finally:
+        await session.disconnect()
+
+
 @app.route(route="ask", methods=["POST"])
 async def ask(req: func.HttpRequest) -> func.HttpResponse:
     """HTTP trigger: forward the request body to the SQL MCP-backed agent."""
@@ -150,3 +204,34 @@ async def ask(req: func.HttpRequest) -> func.HttpResponse:
         return func.HttpResponse(str(exc), status_code=502, mimetype="text/plain")
 
     return func.HttpResponse(response_text, mimetype="text/plain")
+
+
+@app.route(route="chat", methods=["POST"])
+async def chat(req: func.HttpRequest) -> func.HttpResponse:
+    """Multi-turn variant of /ask that keeps conversation context across turns.
+
+    Send the prompt in the request body. The response carries an ``x-ms-session-id``
+    header; echo it back on the next request to continue the same conversation (the
+    agent resumes the persisted session and remembers earlier turns). Omit the header
+    to start a fresh conversation. The JSON body is ``{"session_id", "response"}``.
+    """
+    prompt = req.get_body().decode("utf-8").strip()
+    if not prompt:
+        return func.HttpResponse(
+            "Provide a prompt in the request body, e.g. \"List the blog posts in the database.\"",
+            status_code=400,
+            mimetype="text/plain",
+        )
+
+    session_id = req.headers.get("x-ms-session-id")
+    try:
+        response_text, session_id = await _chat_agent(prompt, session_id)
+    except Exception as exc:  # noqa: BLE001 - surface the failure to the caller
+        logging.exception("Chat request failed.")
+        return func.HttpResponse(str(exc), status_code=502, mimetype="text/plain")
+
+    return func.HttpResponse(
+        json.dumps({"session_id": session_id, "response": response_text}),
+        mimetype="application/json",
+        headers={"x-ms-session-id": session_id},
+    )
