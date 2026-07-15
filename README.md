@@ -123,15 +123,16 @@ Multi-turn works because the Copilot SDK persists each conversation's history to
 
 **Pinned SDK + CLI:** the SDK writes session state through the Copilot CLI's own store, and that store must work on the mounted SMB share. This sample pins a matched, tested pair — `github-copilot-sdk==0.2.0` (in `requirements.txt`/`pyproject.toml`) and CLI `@github/copilot@1.0.13` (in [`package.json`](package.json)) — so the SDK doesn't auto-download a newer CLI whose session store fails on the SMB share. The SDK does not download the CLI itself, so the correct binary must be bundled:
 
-- **For deployment**, azd `prepackage` and `predeploy` hooks (in [`azure.yaml`](azure.yaml)) run `rm -rf node_modules && npm install --os=linux --cpu=x64`, which downloads the **Linux** CLI binary into `node_modules/` (even when you deploy from macOS/Windows) and overwrites any local binary. That folder is included in the deployment package, so the binary is present at runtime. Both `azd up`/`azd package` (prepackage) and `azd deploy` (predeploy) trigger it. **This requires Node.js + npm on the machine you run `azd` from.**
+- **For deployment**, azd `prepackage` and `predeploy` hooks (in [`azure.yaml`](azure.yaml)) run `npm ci --os=linux --cpu=x64`, which wipes `node_modules/` and installs the **Linux** CLI binary (even when you deploy from macOS/Windows). That folder is included in the deployment package, so the binary is present at runtime. `azd up`/`azd package` (prepackage) and `azd deploy` (predeploy) trigger it. **This requires Node.js + npm on the machine you run `azd` from.** To be safe you can also run it yourself right before deploying: `npm run install:linux`.
 - **For local development**, you run `npm install` yourself, which installs the binary for your own OS.
 
-`function_app.py` resolves the bundled binary under `node_modules/@github/copilot-<platform>/copilot` (overridable with `COPILOT_CLI_PATH`) and passes it to the SDK via `SubprocessConfig(cli_path=...)`. Note: after an `azd` deploy your local `node_modules/` holds the Linux binary — re-run `npm install` before running the app locally again.
+`function_app.py` resolves the bundled binary under `node_modules/@github/copilot-<platform>/copilot` (overridable with `COPILOT_CLI_PATH`) and passes it to the SDK via `SubprocessConfig(cli_path=...)`. Note: after a deploy your local `node_modules/` holds the Linux binary — re-run `npm install` before running the app locally again.
 
 ## Deploy to Azure
 
 ```bash
 azd auth login
+npm run install:linux   # bundle the Linux CLI binary (the deploy hooks also do this)
 azd up
 ```
 

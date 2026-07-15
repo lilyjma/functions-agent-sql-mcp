@@ -4,8 +4,8 @@
   "private": true,
   "description": "Bundles a pinned Copilot CLI so the Python app drives a matched SDK/CLI pair.",
   "scripts": {
-    "install:linux": "npm install --os=linux --cpu=x64 --no-audit --no-fund",
-    "install:macos": "npm install --os=darwin --cpu=arm64 --no-audit --no-fund",
+    "install:linux": "npm ci --os=linux --cpu=x64 --no-audit --no-fund",
+    "install:macos": "npm ci --os=darwin --cpu=arm64 --no-audit --no-fund",
     "install:local": "npm install"
   },
   "dependencies": {

@@ -12,20 +12,20 @@ hooks:
   prepackage:
     posix:
       shell: sh
-      run: rm -rf node_modules && npm install --os=linux --cpu=x64 --no-audit --no-fund
+      run: npm ci --os=linux --cpu=x64 --no-audit --no-fund
       continueOnError: false
     windows:
       shell: pwsh
-      run: Remove-Item -Recurse -Force node_modules -ErrorAction SilentlyContinue; npm install --os=linux --cpu=x64 --no-audit --no-fund
+      run: npm ci --os=linux --cpu=x64 --no-audit --no-fund
       continueOnError: false
   predeploy:
     posix:
       shell: sh
-      run: rm -rf node_modules && npm install --os=linux --cpu=x64 --no-audit --no-fund
+      run: npm ci --os=linux --cpu=x64 --no-audit --no-fund
       continueOnError: false
     windows:
       shell: pwsh
-      run: Remove-Item -Recurse -Force node_modules -ErrorAction SilentlyContinue; npm install --os=linux --cpu=x64 --no-audit --no-fund
+      run: npm ci --os=linux --cpu=x64 --no-audit --no-fund
       continueOnError: false
   postprovision:
     posix:
