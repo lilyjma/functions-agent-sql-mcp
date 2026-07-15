@@ -76,13 +76,15 @@ def _session_config():
     config = {
         "system_message": {"content": instructions},
         "on_permission_request": PermissionHandler.approve_all,
-        # Restrict the agent to the SQL MCP tools. Newer bundled CLIs ship built-in
-        # tools (shell, file read/write, etc.); with those available the model may
-        # "answer" a data question by shelling out to a local sqlite database instead
-        # of calling sql-mcp. Excluding the built-ins forces every data question
-        # through the SQL MCP server, which is the whole point of this sample.
+        # Restrict the agent to the SQL MCP tools. The bundled Copilot CLI ships a
+        # built-in `sql` tool that gives each session its own local SQLite database
+        # (pre-seeded with `todos`/`todo_deps` tables). Faced with a "SQL database"
+        # question the model will happily use that local `sql` tool and report "0
+        # tables" instead of calling our sql-mcp server. Excluding `sql` (plus the
+        # shell/file built-ins that could reach a local db another way) forces every
+        # data question through the SQL MCP server, which is the point of this sample.
         "excluded_tools": [
-            "shell", "bash", "read", "write", "create", "edit",
+            "sql", "shell", "bash", "read", "write", "create", "edit",
             "str_replace_editor", "grep", "glob", "view", "fetch",
         ],
     }
