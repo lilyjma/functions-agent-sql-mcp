@@ -44,13 +44,7 @@ The Azure Connector Namespace is a new offering that allows you to host fully ma
    uv sync
    ```
 
-1. Install the pinned Copilot CLI that the SDK drives. This sample pins the CLI via
-   [`package.json`](package.json) so the SDK and CLI stay a matched, tested pair (see
-   [Session persistence](#session-persistence)); the SDK does not auto-download it:
-
-   ```bash
-   npm install
-   ```
+   This installs `github-copilot-sdk`, whose wheel bundles the matching Copilot CLI the SDK drives — no separate CLI install is needed.
 
 1. Run the function locally:
 
@@ -121,18 +115,12 @@ Multi-turn works because the Copilot SDK persists each conversation's history to
 
 **How Azure Files is accessed:** the SMB file-share mount requires the storage account **key**, so the storage account sets `allowSharedKeyAccess: true` (with an `Az.Sec.DisableLocalAuth.Storage::Skip` policy annotation documenting why). This is scoped to the session-state file share only. Everything else stays keyless: the agent authenticates to the **SQL MCP server** with the Function's **managed identity**, and the Function host authenticates to blob/queue storage with managed identity (`AzureWebJobsStorage__credential: managedidentity`). See `infra/main.bicep` (storage account + share) and `infra/app/api.bicep` (the `azurestorageaccounts` mount).
 
-**Pinned SDK + CLI:** the SDK writes session state through the Copilot CLI's own store, and that store must work on the mounted SMB share. This sample pins a matched, tested pair — `github-copilot-sdk==0.2.0` (in `requirements.txt`/`pyproject.toml`) and CLI `@github/copilot@1.0.13` (in [`package.json`](package.json)) — so the SDK doesn't auto-download a newer CLI whose session store fails on the SMB share. The SDK does not download the CLI itself, so the correct binary must be bundled:
-
-- **For deployment**, azd `prepackage` and `predeploy` hooks (in [`azure.yaml`](azure.yaml)) run `npm ci --os=linux --cpu=x64`, which wipes `node_modules/` and installs the **Linux** CLI binary (even when you deploy from macOS/Windows). That folder is included in the deployment package, so the binary is present at runtime. `azd up`/`azd package` (prepackage) and `azd deploy` (predeploy) trigger it. **This requires Node.js + npm on the machine you run `azd` from.** To be safe you can also run it yourself right before deploying: `npm run install:linux`.
-- **For local development**, you run `npm install` yourself, which installs the binary for your own OS.
-
-`function_app.py` resolves the bundled binary under `node_modules/@github/copilot-<platform>/copilot` (overridable with `COPILOT_CLI_PATH`) and passes it to the SDK via `SubprocessConfig(cli_path=...)`. Because the deployment package is zipped without the Unix execute bit and mounted read-only at runtime, the app marks the binary executable (copying it to a writable temp dir if it can't chmod in place). Note: after a deploy your local `node_modules/` holds the Linux binary — re-run `npm install` before running the app locally again.
+**Pinned SDK, bundled CLI:** the SDK writes session state through the Copilot CLI's own store, and that store must work on the mounted SMB share. This sample pins `github-copilot-sdk==0.2.0` (in `requirements.txt`/`pyproject.toml`). That wheel **bundles a matching Copilot CLI binary** (`copilot/bin/copilot`) for the platform it is installed on, so on the Linux Function host pip installs the Linux wheel and the SDK drives its own bundled CLI — no separate CLI install or npm step is needed. `function_app.py` therefore creates the client without a `cli_path` (a `COPILOT_CLI_PATH` env var can still override the binary for local testing).
 
 ## Deploy to Azure
 
 ```bash
 azd auth login
-npm run install:linux   # bundle the Linux CLI binary (the deploy hooks also do this)
 azd up
 ```
 
