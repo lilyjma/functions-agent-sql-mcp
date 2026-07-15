@@ -126,7 +126,7 @@ Multi-turn works because the Copilot SDK persists each conversation's history to
 - **For deployment**, azd `prepackage` and `predeploy` hooks (in [`azure.yaml`](azure.yaml)) run `npm ci --os=linux --cpu=x64`, which wipes `node_modules/` and installs the **Linux** CLI binary (even when you deploy from macOS/Windows). That folder is included in the deployment package, so the binary is present at runtime. `azd up`/`azd package` (prepackage) and `azd deploy` (predeploy) trigger it. **This requires Node.js + npm on the machine you run `azd` from.** To be safe you can also run it yourself right before deploying: `npm run install:linux`.
 - **For local development**, you run `npm install` yourself, which installs the binary for your own OS.
 
-`function_app.py` resolves the bundled binary under `node_modules/@github/copilot-<platform>/copilot` (overridable with `COPILOT_CLI_PATH`) and passes it to the SDK via `SubprocessConfig(cli_path=...)`. Note: after a deploy your local `node_modules/` holds the Linux binary — re-run `npm install` before running the app locally again.
+`function_app.py` resolves the bundled binary under `node_modules/@github/copilot-<platform>/copilot` (overridable with `COPILOT_CLI_PATH`) and passes it to the SDK via `SubprocessConfig(cli_path=...)`. Because the deployment package is zipped without the Unix execute bit and mounted read-only at runtime, the app marks the binary executable (copying it to a writable temp dir if it can't chmod in place). Note: after a deploy your local `node_modules/` holds the Linux binary — re-run `npm install` before running the app locally again.
 
 ## Deploy to Azure
 

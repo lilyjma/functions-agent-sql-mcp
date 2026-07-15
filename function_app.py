@@ -4,6 +4,8 @@ import asyncio
 import logging
 import platform
 import shutil
+import stat
+import tempfile
 import azure.functions as func
 from copilot import CopilotClient, PermissionHandler, SubprocessConfig
 
@@ -14,6 +16,31 @@ app = func.FunctionApp()
 # recommended pattern for driving the SDK from inside a Function host.
 _client: CopilotClient | None = None
 _client_lock = asyncio.Lock()
+
+
+def _ensure_executable(path: str) -> str:
+    """Return a path to a runnable copy of the CLI binary.
+
+    azd zips the deployment package without preserving the Unix execute bit, and the
+    Function host mounts it read-only (run-from-package), so the bundled binary lands
+    without ``+x`` and cannot be chmod'd in place. If we can't mark it executable where
+    it is, copy it once into a writable local dir and run that copy instead.
+    """
+    try:
+        current = os.stat(path).st_mode
+        if current & stat.S_IXUSR:
+            return path
+        os.chmod(path, current | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
+        return path
+    except OSError:
+        dest_dir = os.path.join(tempfile.gettempdir(), "copilot-cli")
+        os.makedirs(dest_dir, exist_ok=True)
+        dest = os.path.join(dest_dir, "copilot")
+        src_size = os.path.getsize(path)
+        if not os.path.exists(dest) or os.path.getsize(dest) != src_size:
+            shutil.copy2(path, dest)
+        os.chmod(dest, 0o755)
+        return dest
 
 
 def _resolve_cli_path() -> str:
@@ -41,7 +68,7 @@ def _resolve_cli_path() -> str:
     if platform_pkg:
         bundled = os.path.join(base, "node_modules", "@github", platform_pkg, "copilot")
         if os.path.exists(bundled):
-            return bundled
+            return _ensure_executable(bundled)
     return shutil.which("copilot") or "copilot"
 
 
