@@ -9,6 +9,15 @@ services:
     host: function
     language: python
 hooks:
+  prepackage:
+    posix:
+      shell: sh
+      run: npm install --os=linux --cpu=x64 --no-audit --no-fund
+      continueOnError: false
+    windows:
+      shell: pwsh
+      run: npm install --os=linux --cpu=x64 --no-audit --no-fund
+      continueOnError: false
   postprovision:
     posix:
       shell: sh

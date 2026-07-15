@@ -20,12 +20,13 @@ def _resolve_cli_path() -> str:
     """Locate the Copilot CLI binary this app should drive.
 
     Priority: an explicit ``COPILOT_CLI_PATH`` override; else the platform-specific
-    binary bundled under ``node_modules/@github`` (installed from ``package.json`` at
-    build time — this is what ships to Azure); else a ``copilot`` found on PATH; else
-    the bare command name. Pinning the CLI via package.json keeps the SDK and CLI a
-    matched, tested pair and stops the SDK from auto-downloading a newer CLI whose
-    SQLite session store does not work on the Azure Files SMB share used for durable
-    multi-turn state (see README: Session persistence).
+    binary bundled under ``node_modules/@github`` (the Linux binary is installed into
+    the deployment package by the azd ``prepackage`` hook; locally it comes from
+    ``npm install``); else a ``copilot`` found on PATH; else the bare command name.
+    Pinning the CLI via package.json keeps the SDK and CLI a matched, tested pair and
+    stops the SDK from auto-downloading a newer CLI whose SQLite session store does not
+    work on the Azure Files SMB share used for durable multi-turn state (see README:
+    Session persistence).
     """
     env_path = os.environ.get("COPILOT_CLI_PATH")
     if env_path:
