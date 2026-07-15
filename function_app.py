@@ -76,6 +76,15 @@ def _session_config():
     config = {
         "system_message": {"content": instructions},
         "on_permission_request": PermissionHandler.approve_all,
+        # Restrict the agent to the SQL MCP tools. Newer bundled CLIs ship built-in
+        # tools (shell, file read/write, etc.); with those available the model may
+        # "answer" a data question by shelling out to a local sqlite database instead
+        # of calling sql-mcp. Excluding the built-ins forces every data question
+        # through the SQL MCP server, which is the whole point of this sample.
+        "excluded_tools": [
+            "shell", "bash", "read", "write", "create", "edit",
+            "str_replace_editor", "grep", "glob", "view", "fetch",
+        ],
     }
 
     # Model provider (Azure OpenAI). Uses an API key if provided, otherwise a
