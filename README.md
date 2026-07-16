@@ -71,11 +71,6 @@ The Azure Connector Namespace is a new offering that allows you to host fully ma
    -d "What's the first table?"
    ```
 
-> [!NOTE]
-> **`MCP server 'sql-mcp' failed to connect (status: ServerStatus.FAILED)`**
->
-> This is usually **transient** — the remote SQL MCP server occasionally fails its OAuth handshake.
-
 ## How it works
 
 ```
@@ -195,6 +190,19 @@ export AZURE_OPENAI_API_KEY="<your-api-key>"   # omit to use managed identity fo
 ```
 
 If you omit `AZURE_OPENAI_API_KEY`, the app requests a managed-identity token for the `https://cognitiveservices.azure.com/.default` scope instead. See the [BYOK docs](https://github.com/github/copilot-sdk/blob/main/docs/auth/byok.md).
+
+## Troubleshooting
+
+**`MCP server 'sql-mcp' failed to connect (status: ServerStatus.FAILED)`**
+
+This error means the agent couldn't connect to the SQL MCP server. It's usually one of two things:
+
+1. **Transient failure (most common).** The remote server occasionally fails its OAuth handshake or tool-discovery step, typically on a **cold start**. Just **retry the request** — it usually succeeds on the next attempt.
+2. **Missing access policy.** The Connector Namespace only accepts callers that have an **access policy** for their identity's object ID. If retrying doesn't help, confirm you've authorized the right identity:
+   - **Locally**, your `az login` (dev) identity — see [Quickstart](#quickstart).
+   - **In Azure**, the Function app's user-assigned managed identity — see [Authorize the Function app's managed identity](#authorize-the-function-apps-managed-identity-post-deployment).
+
+   In both cases you add the policy on the server following [Add an access policy](https://learn.microsoft.com/azure/logic-apps/connector-namespace/hosted-mcp-dev-guide#access-policy).
 
 ## Learn more
 
