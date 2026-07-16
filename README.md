@@ -44,6 +44,8 @@ The Azure Connector Namespace is a new offering that allows you to host fully ma
    uv sync
    ```
 
+   This installs `github-copilot-sdk`, whose wheel bundles the matching Copilot CLI the SDK drives — no separate CLI install is needed.
+
 6. Run the function locally:
 
    ```bash
@@ -53,17 +55,21 @@ The Azure Connector Namespace is a new offering that allows you to host fully ma
 7. Ask the agent something (in a new terminal):
 
    ```bash
-   # Interactive chat client
-
+   # Interactive chat client (multi-turn — keeps conversation context)
    uv run chat.py
-   ```
 
-   Ask a question about the database: "List tables are in the database."
+   # Single-turn: POST a prompt to /api/ask and get one reply
+   curl -X POST http://localhost:7071/api/ask \
+     -d "List tables in the database."
 
-   ```bash
-    # Or use curl directly
-
-   curl -X POST http://localhost:7071/api/ask -d "List tables in the database."
+   # Multi-turn: /api/chat returns an x-ms-session-id header; send it back
+   # on the next request to continue the same conversation.
+   curl -i -X POST http://localhost:7071/api/chat \
+     -d "List the blog posts in the database."
+   # ...then reuse the returned id:
+   curl -i -X POST http://localhost:7071/api/chat \
+     -H "x-ms-session-id: <id-from-previous-response>" \
+     -d "Which of those has the most comments?"
    ```
 
 ## How it works
@@ -73,7 +79,7 @@ POST /api/ask  "List the blog posts in the database"
         │
         ▼
   Azure Function ── Copilot SDK agent
-        │   session config attaches the sql-mcp server + a managed-identity auth handler
+        │   session config attaches the sql-mcp server + a managed-identity bearer header
         ▼
   sql-mcp server (Entra-protected)  ← Function's managed identity token
         │   the model calls tools like describe_entities, read_records
@@ -81,7 +87,23 @@ POST /api/ask  "List the blog posts in the database"
   SQL database
 ```
 
-The agent running on Functions has the SQL MCP server attached, and its system instructions tell it to use the `sql-mcp` tools whenever the user asks about database data. The `/api/ask` endpoint forwards the caller's prompt to that agent; the model decides which tools to call.
+The agent running on Functions has the SQL MCP server attached, and its system instructions tell it to use the `sql-mcp` tools whenever the user asks about database data. The model decides which tools to call — a single question usually results in several tool calls (e.g. `describe_entities` then `read_records`).
+
+Two HTTP endpoints are exposed:
+
+- **`POST /api/ask`** — single-turn. Forwards the prompt to the agent and returns one reply. No memory between requests.
+- **`POST /api/chat`** — multi-turn. Same agent, but the conversation is persisted so follow-up questions keep their context. The response returns an `x-ms-session-id` header; send it back on the next request to resume the same session (the agent remembers earlier turns). Omit the header to start a fresh conversation. This is the realistic way to work with the SQL MCP server, since answering a question often takes several turns of tool calls and follow-ups. `chat.py` uses this endpoint and round-trips the session id for you.
+
+### Session persistence
+
+Multi-turn works because the Copilot SDK persists each conversation's history to `{config_dir}/session-state/{session_id}/` and resumes it on the next turn.
+
+- **Locally**, sessions are stored under `~/.copilot/session-state/`.
+- **In Azure**, the function app mounts an **Azure Files SMB share** (`code-assistant-session`) at `/code-assistant-session` (set via the `COPILOT_CONFIG_DIR` app setting), so conversation state is durable and shared across all instances — it survives cold starts, scale-out, and instance recycling.
+
+**How Azure Files is accessed:** the SMB file-share mount requires the storage account **key**, so the storage account sets `allowSharedKeyAccess: true` (with an `Az.Sec.DisableLocalAuth.Storage::Skip` policy annotation documenting why). This is scoped to the session-state file share only. Everything else stays keyless: the agent authenticates to the **SQL MCP server** with the Function's **managed identity**, and the Function host authenticates to blob/queue storage with managed identity (`AzureWebJobsStorage__credential: managedidentity`). See `infra/main.bicep` (storage account + share) and `infra/app/api.bicep` (the `azurestorageaccounts` mount).
+
+**Pinned SDK, bundled CLI:** the SDK writes session state through the Copilot CLI's own store, and that store must work on the mounted SMB share. This sample pins `github-copilot-sdk==0.2.0` (in `requirements.txt`/`pyproject.toml`). That wheel **bundles a matching Copilot CLI binary** (`copilot/bin/copilot`) for the platform it is installed on, so on the Linux Function host pip installs the Linux wheel and the SDK drives its own bundled CLI — no separate CLI install or npm step is needed. `function_app.py` therefore creates the client without a `cli_path` (a `COPILOT_CLI_PATH` env var can still override the binary for local testing).
 
 ## Deploy to Azure
 
@@ -120,25 +142,38 @@ To chat with a deployed instance, grab the URL and function key from your `azd` 
       --query "functionKeys.default" -o tsv)
    ```
 
-Use curl:
+Use curl. The `/api/chat` endpoint returns an `x-ms-session-id` header — send it back on the next request to continue the same conversation:
 
    ```bash
-   export url=$AGENT_URL/api/ask?code=$FUNCTION_KEY
+   export url="$AGENT_URL/api/chat?code=$FUNCTION_KEY"
 
-   curl -X POST $url -d "List tables in the database."
+   # First turn (-i so you can see the x-ms-session-id response header)
+   curl -i -X POST $url -d "List the blog posts in the database."
+
+   # Follow-up turn: reuse the returned id to keep context
+   curl -i -X POST $url \
+      -H "x-ms-session-id: <id-from-previous-response>" \
+      -d "Which of those has the most comments?"
    ```
+
+Use `/api/ask` instead if you just want a single-turn reply with no memory.
 
 ## How Function app connects to the SQL MCP server
 
 The Function app authenticates to an Entra-protected MCP server without any secrets.
 
-The Copilot SDK calls the `on_mcp_auth_request` handler when the MCP server returns a `401` OAuth challenge. The handler mints a bearer token with `DefaultAzureCredential` for the server's scope (`https://apihub.azure.com/.default`) and hands it back:
+When it attaches the `sql-mcp` server to the session, it mints a bearer token with `DefaultAzureCredential` for the server's scope (`https://apihub.azure.com/.default`) and passes it as a static `Authorization` header on the MCP server config. The SDK forwards that header on every request to the server:
 
    ```python
-   def _on_mcp_auth_request(request, context):
-       token = _get_managed_credential().get_token(SQL_MCP_SCOPE)
-       return {"kind": "token", "accessToken": token.token,
-               "tokenType": "Bearer", "expiresIn": ...}
+   token = _get_managed_credential().get_token(SQL_MCP_SCOPE)
+   config["mcp_servers"] = {
+       "sql-mcp": {
+           "type": "http",
+           "url": sql_mcp_url,
+           "tools": ["*"],
+           "headers": {"Authorization": f"Bearer {token.token}"},
+       }
+   }
    ```
 
 - **Locally**, `DefaultAzureCredential` uses your `az login` identity.
@@ -150,10 +185,11 @@ The Connector Namespace only accepts callers that have an **access policy** for 
 
 The agent logic is in [`function_app.py`](function_app.py). It:
 
-- Builds a session config with the Azure OpenAI model provider and (when `SQL_MCP_SERVER_URL` is set) the `sql-mcp` MCP server plus the managed-identity auth handler.
-- Exposes an HTTP endpoint at `/api/ask` that forwards the request body to the agent and returns the reply.
+- Builds a session config with the Azure OpenAI model provider and (when `SQL_MCP_SERVER_URL` is set) the `sql-mcp` MCP server plus a managed-identity bearer `Authorization` header.
+- Exposes `POST /api/ask` (single-turn) that forwards the request body to the agent and returns the reply.
+- Exposes `POST /api/chat` (multi-turn) that resumes or creates a persisted session keyed by the `x-ms-session-id` header, so follow-up questions keep their context.
 
-[`chat.py`](chat.py) is a lightweight console client that POSTs messages to `/api/ask` in a loop. It defaults to `http://localhost:7071` but can be pointed at a deployed instance via the `AGENT_URL` environment variable.
+[`chat.py`](chat.py) is a lightweight console client that POSTs messages to `/api/chat` in a loop, round-tripping the `x-ms-session-id` header so the conversation stays multi-turn. It defaults to `http://localhost:7071` but can be pointed at a deployed instance via the `AGENT_URL` environment variable.
 
 ## Using Microsoft Foundry (BYOK)
 

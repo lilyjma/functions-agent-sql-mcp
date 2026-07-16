@@ -19,6 +19,7 @@ param enableBlob bool = true
 param enableQueue bool = false
 param enableTable bool = false
 param enableFile bool = false
+param sessionShareName string = ''
 
 @allowed(['SystemAssigned', 'UserAssigned'])
 param identityType string = 'UserAssigned'
@@ -103,3 +104,24 @@ module api 'br/public:avm/res/web/site:0.15.1' = {
 
 output SERVICE_API_NAME string = api.outputs.name
 output SERVICE_API_IDENTITY_PRINCIPAL_ID string = identityType == 'SystemAssigned' ? api.outputs.?systemAssignedMIPrincipalId ?? '' : ''
+
+// Mount an Azure Files share for persisting Copilot SDK agent session state so that
+// multi-turn conversations survive cold starts, scale-out, and instance recycling.
+resource functionApp 'Microsoft.Web/sites@2024-04-01' existing = {
+  name: name
+}
+
+resource storageMount 'Microsoft.Web/sites/config@2024-04-01' = if (!empty(sessionShareName)) {
+  parent: functionApp
+  name: 'azurestorageaccounts'
+  dependsOn: [api]
+  properties: {
+    sessionstore: {
+      type: 'AzureFiles'
+      accountName: storageAccountName
+      shareName: sessionShareName
+      mountPath: '/code-assistant-session'
+      accessKey: stg.listKeys().keys[0].value
+    }
+  }
+}

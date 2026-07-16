@@ -167,17 +167,25 @@ module appServicePlan 'br/public:avm/res/web/serverfarm:0.1.1' = {
 }
 
 // Storage for Azure Functions
+// Azure Files share used to persist Copilot SDK agent session state (multi-turn chat)
+var sessionShareName = 'code-assistant-session'
+
 module storage 'br/public:avm/res/storage/storage-account:0.14.3' = {
   name: 'storage'
   scope: rg
   params: {
     name: !empty(storageAccountName) ? storageAccountName : '${abbrs.storageStorageAccounts}${resourceToken}'
     location: location
-    tags: tags
+    // Shared key access is enabled solely so the Function App can mount the Azure Files
+    // SMB share below for durable, cross-instance agent session state. The Function host
+    // itself still authenticates to blob/queue via managed identity (see api.bicep).
+    tags: union(tags, {
+      'Az.Sec.DisableLocalAuth.Storage::Skip': 'Azure Files SMB mount requires shared key access for agent session persistence'
+    })
     kind: 'StorageV2'
     skuName: 'Standard_LRS'
     allowBlobPublicAccess: false
-    allowSharedKeyAccess: false
+    allowSharedKeyAccess: true // Required for Azure Files SMB mount (session state persistence)
     publicNetworkAccess: 'Enabled'
     networkAcls: {
       bypass: 'AzureServices'
@@ -186,6 +194,11 @@ module storage 'br/public:avm/res/storage/storage-account:0.14.3' = {
     blobServices: {
       containers: [
         { name: deploymentStorageContainerName }
+      ]
+    }
+    fileServices: {
+      shares: [
+        { name: sessionShareName, shareQuota: 1 }
       ]
     }
   }
@@ -222,6 +235,7 @@ module api './app/api.bicep' = {
     identityClientId: apiUserAssignedIdentity.outputs.clientId
     enableBlob: true
     enableQueue: true
+    sessionShareName: sessionShareName
     appSettings: {
       AZURE_CLIENT_ID: apiUserAssignedIdentity.outputs.clientId
       AZURE_AI_PROJECT_ENDPOINT: aiProject.outputs.projectEndpoint
@@ -229,6 +243,9 @@ module api './app/api.bicep' = {
       AZURE_OPENAI_ENDPOINT: 'https://${aiDependencies.outputs.aiServicesName}.openai.azure.com/'
       AZURE_OPENAI_DEPLOYMENT_NAME: modelDeploymentName
       SQL_MCP_SERVER_URL: sqlMcpServerUrl
+      // Directory where the Copilot SDK persists agent session state; backed by the
+      // Azure Files share mounted at this path (see infra/app/api.bicep).
+      COPILOT_CONFIG_DIR: '/code-assistant-session'
     }
   }
 }
@@ -340,7 +357,7 @@ var storageEndpointConfig = {
   enableBlob: true
   enableQueue: true
   enableTable: false
-  enableFiles: false
+  enableFiles: true // Required for the agent session-state Azure Files share mount
   allowUserIdentityPrincipal: !empty(principalId)
 }
 

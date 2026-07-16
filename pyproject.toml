@@ -7,7 +7,7 @@ requires-python = ">=3.13"
 dependencies = [
     "azure-functions>=2.2.0",
     "azure-identity",
-    "github-copilot-sdk",
+    "github-copilot-sdk==0.2.0",
 ]
 
 [tool.uv]
