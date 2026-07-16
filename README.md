@@ -158,6 +158,12 @@ Use curl. The `/api/chat` endpoint returns an `x-ms-session-id` header — send 
 
 Use `/api/ask` instead if you just want a single-turn reply with no memory.
 
+### Troubleshooting
+
+> **`MCP server 'sql-mcp' failed to connect (status: ServerStatus.FAILED)`**
+>
+> This is usually **transient** — the remote SQL MCP server occasionally fails its OAuth handshake or tool-discovery step (for example on a cold start or a brief hiccup on the Connector Namespace side). Simply **retry the request**; it typically succeeds on the next attempt. If it fails persistently, confirm `SQL_MCP_SERVER_URL` is correct and that the caller's identity (your dev identity locally, or the Function's managed identity in Azure) has an **access policy** on the server.
+
 ## How Function app connects to the SQL MCP server
 
 The Function app authenticates to an Entra-protected MCP server without any secrets.
