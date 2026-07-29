@@ -252,7 +252,7 @@ module api './app/api.bicep' = {
 
 // AI Dependencies (AI Services, Storage, Search, Cosmos DB)
 module aiDependencies './agent/standard-dependent-resources.bicep' = {
-  name: 'dependencies${projectName}'
+  name: 'dependencies${take(projectName, 51)}'
   scope: rg
   params: {
     location: aiLocation
@@ -279,7 +279,7 @@ module aiDependencies './agent/standard-dependent-resources.bicep' = {
 
 // AI Project
 module aiProject './agent/standard-ai-project.bicep' = {
-  name: 'project${projectName}'
+  name: 'project${take(projectName, 57)}'
   scope: rg
   params: {
     location: aiLocation
@@ -304,7 +304,7 @@ module aiProject './agent/standard-ai-project.bicep' = {
 
 // AI Project Role Assignments
 module projectRoleAssignments './agent/standard-ai-project-role-assignments.bicep' = {
-  name: 'rbac${projectName}'
+  name: 'rbac${take(projectName, 60)}'
   scope: rg
   params: {
     aiProjectPrincipalId: aiProject.outputs.aiProjectPrincipalId
@@ -323,7 +323,7 @@ module projectRoleAssignments './agent/standard-ai-project-role-assignments.bice
 }
 
 module aiProjectCapabilityHost './agent/standard-ai-project-capability-host.bicep' = if (enableAzureSearch && enableCosmosDb) {
-  name: 'caphost${projectName}'
+  name: 'caphost${take(projectName, 57)}'
   scope: rg
   params: {
     aiServicesAccountName: aiDependencies.outputs.aiServicesName
@@ -340,7 +340,7 @@ module aiProjectCapabilityHost './agent/standard-ai-project-capability-host.bice
 }
 
 module postCapabilityHostCreationRoleAssignments './agent/post-capability-host-role-assignments.bicep' = if (enableAzureSearch && enableCosmosDb) {
-  name: 'postcap${projectName}'
+  name: 'postcap${take(projectName, 57)}'
   scope: rg
   params: {
     aiProjectPrincipalId: aiProject.outputs.aiProjectPrincipalId

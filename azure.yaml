@@ -21,6 +21,11 @@ hooks:
       interactive: true
       continueOnError: false
   postdeploy:
-    shell: sh
-    run: echo "Deployment completed successfully"
-    continueOnError: false
+    posix:
+      shell: sh
+      run: echo "Deployment completed successfully"
+      continueOnError: false
+    windows:
+      shell: pwsh
+      run: Write-Host "Deployment completed successfully"
+      continueOnError: false

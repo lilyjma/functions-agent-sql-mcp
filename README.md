@@ -86,7 +86,7 @@ POST /api/chat  "List tables in the database"
   SQL database
 ```
 
-The agent running on Functions has the SQL MCP server attached, and its system instructions tell it to use the `sql-mcp` server whenever the user asks about database data. The model decides which tools to cal.
+The agent running on Functions has the SQL MCP server attached, and its system instructions tell it to use the `sql-mcp` server whenever the user asks about database data. The model decides which tools to call.
 
 ## Deploy to Azure
 
@@ -99,6 +99,8 @@ This provisions all resources and configures the app. `azd up` prompts for the S
 
 - **AI location** (`AZURE_AI_LOCATION`): the AI Services account and model deployment. There are some regions where Azure Functions is supported but AI services are not. In those case, pick one close to your Function region
 - **Location** (`AZURE_LOCATION`): the Function app, storage, and plan. Co-locate this with your SQL MCP server for low-latency MCP calls
+
+> **Model note:** Locally, the app uses **GitHub Copilot's models** via your GitHub account, so no Azure AI resource is needed. When deployed, the app requires a real Azure AI model: `azd up` provisions an **Azure AI Services** account and deploys a model (default: `gpt-5-mini`) into it automatically.
 
 ### Authorize the Function app's managed identity (post-deployment)
 

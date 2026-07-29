@@ -183,16 +183,6 @@ resource storageQueueDataContributorRoleAssignmentUser 'Microsoft.Authorization/
 
 // Function App Managed Identity assignments
 
-resource cognitiveServicesContributorAssignmentFunctionApp 'Microsoft.Authorization/roleAssignments@2022-04-01'= if (allowFunctionAppIdentityPrincipal && !empty(functionAppManagedIdentityPrincipalId)) {
-  scope: aiServices
-  name: guid(aiServices.id, cognitiveServicesContributorRoleDefinitionId, functionAppManagedIdentityPrincipalId)
-  properties: {  
-    principalId: functionAppManagedIdentityPrincipalId
-    roleDefinitionId: resourceId('Microsoft.Authorization/roleDefinitions', cognitiveServicesContributorRoleDefinitionId)
-    principalType: 'ServicePrincipal'
-  }
-}
-
 resource cognitiveServicesOpenAIUserRoleAssignmentFunctionApp 'Microsoft.Authorization/roleAssignments@2022-04-01' = if (allowFunctionAppIdentityPrincipal && !empty(functionAppManagedIdentityPrincipalId)) {
   scope: aiServices
   name: guid(functionAppManagedIdentityPrincipalId, cognitiveServicesOpenAIUserRoleDefinitionId, aiServices.id)

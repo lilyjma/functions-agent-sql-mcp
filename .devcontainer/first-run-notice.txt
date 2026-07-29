@@ -3,7 +3,6 @@ It includes everything needed to run through our tutorials and quickstart applic
 
 To run a function enter folder with host.json and run:
 ```
-cd src
 func start
 ```
 

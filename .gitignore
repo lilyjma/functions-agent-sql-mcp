@@ -145,8 +145,8 @@ cython_debug/
 Thumbs.db
 
 # Azure Functions
-local.settings.json
 !local.settings.json.sample
+.azurite/
 __blobstorage__/
 __queuestorage__/
 __azurite_db*__.json
