@@ -3,6 +3,6 @@
   "Values": {
     "AzureWebJobsStorage": "UseDevelopmentStorage=true",
     "FUNCTIONS_WORKER_RUNTIME": "python",
-    "SQL_MCP_SERVER_URL": "https://app-05.eastasia.logic.azure.com/api/connectorGateways/723917ea1a91419abe412fd6a2caec21/mcpServerConfigs/sql-mcp/mcp"
+    "SQL_MCP_SERVER_URL": ""
   }
 }
